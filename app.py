@@ -1,55 +1,76 @@
-from flask import Flask, render_template, request, jsonify
-from flask_sqlalchemy import SQLAlchemy
+import pickle
+import streamlit as st
+import numpy as np
+from PIL import Image
+import requests
+from io import BytesIO
 
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///novelhunt.db'  # SQLite database for simplicity
-db = SQLAlchemy(app)
 
-class Book(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(255), nullable=False)
-    author = db.Column(db.String(255), nullable=False)
-    genre = db.Column(db.String(255))
-    synopsis = db.Column(db.Text)
+st.header('NovelHunt')
+model = pickle.load(open('artifacts/model.pkl','rb'))
+books_name = pickle.load(open('artifacts/books_name.pkl','rb'))
+final_rating = pickle.load(open('artifacts/final_rating.pkl','rb'))
+book_pivot = pickle.load(open('artifacts/book_pivot.pkl','rb'))
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def fetch_poster(suggestion):
+    books_name = []
+    ids_index = []
+    poster_url = []
 
-if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()  # Create the database tables
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    for book_id in suggestion:
+        books_name.append(book_pivot.index[book_id])
 
-# ... (previous code)
+    for name in books_name[0]:
+        ids = np.where(final_rating['Title'] == name)[0][0]
+        ids_index.append(ids)
 
-@app.route('/search', methods=['GET'])
-def search():
-    query = request.args.get('q')
-    books = Book.query.filter(Book.title.contains(query) | Book.author.contains(query)).all()
-    return jsonify([book.to_dict() for book in books])
+    for ids in ids_index:
+        url = final_rating.iloc[ids]['Img_url']
+        poster_url.append(url)
 
-@app.route('/recommend', methods=['POST'])
-def recommend():
-    book_id = request.json['book_id']
-    book = Book.query.get(book_id)
-    if book:
-        similar_books = Book.query.filter(Book.genre == book.genre).all()
-        return jsonify([book.to_dict() for book in similar_books])
-    else:
-        return jsonify({'error': 'Book not found'}), 404
+    return poster_url
 
-# ... (remaining code)
 
-class Book(db.Model):
-    # ... (previous code)
+def recommend_book(books_name):
+    book_list = []
+    book_id= np.where(book_pivot.index == books_name)[0][0]
+    distance, suggestion = model.kneighbors(book_pivot.iloc[book_id,:].values.reshape(1,-1), n_neighbors=6)
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'title': self.title,
-            'author': self.author,
-            'genre': self.genre,
-            'synopsis': self.synopsis
-        }
+    poster_url = fetch_poster(suggestion)
 
+    for i in range(len(suggestion)):
+        books = book_pivot.index[suggestion[i]]
+        for j in books:
+            book_list.append(j)
+    return book_list, poster_url
+
+selected_books = st.selectbox(
+    "Type or Select a book",
+    books_name
+)
+
+if st.button('Show Recommendation'):
+    recommended_books, poster_url = recommend_book(selected_books)
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    image_width = 80
+
+    with col1:
+        st.text(recommended_books[1])
+        st.image(poster_url[1], width=image_width)
+    
+    with col2:
+        st.text(recommended_books[2])
+        st.image(poster_url[2], width=image_width)
+
+    with col3:
+        st.text(recommended_books[3])
+        st.image(poster_url[3], width=image_width)
+
+    with col4:
+        st.text(recommended_books[4])
+        st.image(poster_url[4], width=image_width)
+
+    with col5:
+        st.text(recommended_books[5])
+        st.image(poster_url[5], width=image_width)
